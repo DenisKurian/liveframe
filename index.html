@@ -312,6 +312,17 @@
         display: none;
       }
 
+      /* ========== SCENE CONTAINER ========== */
+      #scene-container {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+      }
+
       /* ========== AR CORNER BUTTONS ========== */
       .corner-btn {
         display: none; /* Shown during AR */
@@ -662,6 +673,7 @@
                 height="1"
                 width="1"
                 rotation="0 0 0"
+                material="shader: flat;"
               ></a-plane>
             </a-entity>
           </a-scene>
