@@ -235,7 +235,7 @@
 
       /* Progress overlay */
       #compile-overlay {
-        display: none;
+        display: flex; /* Hidden by JS when done */
         position: fixed;
         inset: 0;
         z-index: 3000;
@@ -312,17 +312,6 @@
         display: none;
       }
 
-      /* ========== SCENE CONTAINER ========== */
-      #scene-container {
-        display: none;
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-      }
-
       /* ========== AR CORNER BUTTONS ========== */
       .corner-btn {
         display: none; /* Shown during AR */
@@ -373,6 +362,17 @@
 
       #qrcode-container {
         display: none;
+      }
+
+      /* ========== SCENE CONTAINER ========== */
+      #scene-container {
+        display: none;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
       }
     </style>
   </head>
@@ -426,7 +426,7 @@
     <!-- ========== COMPILATION PROGRESS ========== -->
     <div id="compile-overlay">
       <div class="compile-spinner"></div>
-      <div class="compile-text" id="compile-text">Preparing your AR experience...</div>
+      <div class="compile-text" id="compile-text">Loading AR experience...</div>
       <div class="compile-progress">
         <div class="compile-progress-bar" id="compile-progress-bar"></div>
       </div>
@@ -456,7 +456,33 @@
     <!-- ========== SCENE CONTAINER (populated dynamically) ========== -->
     <div id="scene-container"></div>
 
-    <script>
+    <!-- Firebase Integration -->
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+      import { getStorage, ref, uploadBytesResumable, getDownloadURL } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js";
+
+      // ============================
+      // TODO: REPLACE THIS WITH YOUR FIREBASE CONFIG
+      // ============================
+      const firebaseConfig = {
+        apiKey: "AIzaSyAaGhtNkiCHyQqZTBkvwyK3YEO2s8_H7qc",
+        authDomain: "liveframe-c78f9.firebaseapp.com",
+  projectId: "liveframe-c78f9",
+  storageBucket: "liveframe-c78f9.firebasestorage.app",
+  messagingSenderId: "913536480975",
+  appId: "1:913536480975:web:f12ecb598a19a61600e9ba",
+  measurementId: "G-Z6969WWS57"
+      };
+
+      // Initialize Firebase (wrapped in try/catch so app doesn't crash if config is empty)
+      let app, storage;
+      try {
+        app = initializeApp(firebaseConfig);
+        storage = getStorage(app);
+      } catch (err) {
+        console.warn("Firebase not properly configured. Uploading to cloud will fail.");
+      }
+
       // ============================
       // State
       // ============================
@@ -466,14 +492,6 @@
       // Default to the predefined files on the server
       const defaultMindUrl = './targets.mind';
       const defaultVideoUrl = './video.mp4';
-      
-      // Track currently active urls
-      let activeMindUrl = defaultMindUrl;
-      let activeVideoUrl = defaultVideoUrl;
-      
-      // User created urls
-      let compiledMindUrl = null;
-      let videoObjectUrl = null;
       
       let currentScene = null;
 
@@ -508,9 +526,34 @@
       // ============================
       // Initialize on Load
       // ============================
-      document.addEventListener("DOMContentLoaded", () => {
-        // Start AR immediately with default files
-        createARScene(activeMindUrl, activeVideoUrl);
+      document.addEventListener("DOMContentLoaded", async () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        const cloudId = urlParams.get('id');
+
+        if (cloudId && storage) {
+          // Fetch from Firebase
+          compileOverlay.style.display = 'flex';
+          compileText.textContent = 'Loading custom AR experience...';
+          compileProgressBar.style.width = '100%';
+
+          try {
+            const mindRef = ref(storage, `targets/${cloudId}.mind`);
+            const videoRef = ref(storage, `videos/${cloudId}.mp4`);
+
+            const mindUrl = await getDownloadURL(mindRef);
+            const vidUrl = await getDownloadURL(videoRef);
+
+            createARScene(mindUrl, vidUrl);
+          } catch (err) {
+            console.error("Failed to load cloud files:", err);
+            alert("Could not load the custom AR experience. Using defaults.");
+            createARScene(defaultMindUrl, defaultVideoUrl);
+          }
+        } else {
+          // Start AR immediately with default files
+          compileOverlay.style.display = 'none';
+          createARScene(defaultMindUrl, defaultVideoUrl);
+        }
       });
 
       // ============================
@@ -526,7 +569,6 @@
         photoFilename.textContent = file.name;
         photoFilename.style.display = 'block';
 
-        // Show preview
         const url = URL.createObjectURL(file);
         photoPreview.innerHTML = `<img src="${url}" alt="Target photo preview" />`;
         photoPreview.style.display = 'block';
@@ -544,7 +586,6 @@
         videoFilename.textContent = file.name;
         videoFilename.style.display = 'block';
 
-        // Show preview
         const url = URL.createObjectURL(file);
         videoPreview.innerHTML = `<video src="${url}" muted playsinline style="pointer-events:none;" autoplay loop></video>`;
         videoPreview.style.display = 'block';
@@ -557,59 +598,77 @@
       }
 
       // ============================
-      // Start AR Flow (from custom upload)
+      // Start AR Flow (Upload to Cloud)
       // ============================
       startBtn.addEventListener('click', async () => {
         if (!uploadedPhotoFile || !uploadedVideoFile) return;
 
-        // Show compilation overlay
+        if (!storage) {
+          alert("Firebase is not configured! Please add your config in index.html to enable cloud sharing.");
+          return;
+        }
+
         setupScreen.style.display = 'none';
         compileOverlay.style.display = 'flex';
         compileText.textContent = 'Analyzing your photo...';
         compileProgressBar.style.width = '0%';
 
         try {
-          // Step 1: Load the image
+          // 1. Load image
           const img = await loadImage(uploadedPhotoFile);
           compileProgressBar.style.width = '10%';
           compileText.textContent = 'Compiling image target...';
 
-          // Step 2: Compile the image target
+          // 2. Compile image target
           const compiler = new MINDAR.IMAGE.Compiler();
           await compiler.compileImageTargets([img], (progress) => {
-            // progress goes from 0 to 1
-            const pct = 10 + Math.round(progress * 80);
+            const pct = 10 + Math.round(progress * 40); // 10% to 50%
             compileProgressBar.style.width = pct + '%';
           });
 
-          compileText.textContent = 'Exporting target data...';
-          compileProgressBar.style.width = '92%';
-
-          // Step 3: Export the compiled data
+          // 3. Export mind file
+          compileText.textContent = 'Uploading to cloud...';
           const exportedBuffer = await compiler.exportData();
+          const mindBlob = new Blob([exportedBuffer], { type: 'application/octet-stream' });
 
-          // Step 4: Create Blob URLs
-          if (compiledMindUrl) URL.revokeObjectURL(compiledMindUrl);
-          if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
+          // 4. Upload to Firebase
+          const uniqueId = generateId();
+          const mindRef = ref(storage, `targets/${uniqueId}.mind`);
+          const videoRef = ref(storage, `videos/${uniqueId}.mp4`);
 
-          const mindBlob = new Blob([exportedBuffer]);
-          compiledMindUrl = URL.createObjectURL(mindBlob);
-          videoObjectUrl = URL.createObjectURL(uploadedVideoFile);
-          
-          activeMindUrl = compiledMindUrl;
-          activeVideoUrl = videoObjectUrl;
+          // Upload Video (track progress 50% to 75%)
+          const uploadVidTask = uploadBytesResumable(videoRef, uploadedVideoFile);
+          uploadVidTask.on('state_changed', (snapshot) => {
+             const prog = (snapshot.bytesTransferred / snapshot.totalBytes);
+             compileProgressBar.style.width = (50 + Math.round(prog * 25)) + '%';
+          });
+          await uploadVidTask;
 
-          compileProgressBar.style.width = '100%';
+          // Upload Mind File (track progress 75% to 100%)
+          const uploadMindTask = uploadBytesResumable(mindRef, mindBlob);
+          uploadMindTask.on('state_changed', (snapshot) => {
+             const prog = (snapshot.bytesTransferred / snapshot.totalBytes);
+             compileProgressBar.style.width = (75 + Math.round(prog * 25)) + '%';
+          });
+          await uploadMindTask;
+
           compileText.textContent = 'Launching AR...';
+          
+          // Get Cloud URLs
+          const finalMindUrl = await getDownloadURL(mindRef);
+          const finalVideoUrl = await getDownloadURL(videoRef);
 
-          // Short delay for visual feedback
+          // Update URL in browser without reloading so QR code points to it
+          const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + uniqueId;
+          window.history.pushState({ path: newUrl }, '', newUrl);
+
           await delay(400);
 
-          // Step 5: Create and start the AR scene
-          createARScene(activeMindUrl, activeVideoUrl);
+          // 5. Start AR scene
+          createARScene(finalMindUrl, finalVideoUrl);
 
         } catch (err) {
-          console.error('Compilation failed:', err);
+          console.error('Upload failed:', err);
           compileText.textContent = 'Something went wrong. Please try again.';
           compileProgressBar.style.width = '0%';
           await delay(2000);
@@ -618,9 +677,10 @@
         }
       });
 
-      // ============================
-      // Image Loader
-      // ============================
+      function generateId() {
+        return Math.random().toString(36).substring(2, 10);
+      }
+
       function loadImage(file) {
         return new Promise((resolve, reject) => {
           const img = new Image();
@@ -638,10 +698,8 @@
       // Create AR Scene
       // ============================
       function createARScene(mindUrl, vidUrl) {
-        // Remove any existing scene
         destroyARScene();
 
-        // Build scene HTML
         sceneContainer.innerHTML = `
           <a-scene
             mindar-image="imageTargetSrc: ${mindUrl}; uiLoading: no; uiScanning: no;"
@@ -682,12 +740,10 @@
         sceneContainer.style.display = 'block';
         compileOverlay.style.display = 'none';
 
-        // Show AR overlays and corner buttons
         scanInstruction.style.display = 'block';
         qrBtn.style.display = 'flex';
         uploadBtn.style.display = 'flex';
 
-        // Wait for scene to initialize, then attach events
         const scene = sceneContainer.querySelector('a-scene');
         currentScene = scene;
 
@@ -717,7 +773,6 @@
             video.pause();
           });
 
-          // Handle first tap to unmute
           const handleFirstTap = () => {
             if (!hasTappedOnce) {
               hasTappedOnce = true;
@@ -733,12 +788,8 @@
         });
       }
 
-      // ============================
-      // Destroy AR Scene
-      // ============================
       function destroyARScene() {
         if (currentScene) {
-          // Try to stop the AR system gracefully
           try {
             const arSystem = currentScene.systems['mindar-image-system'];
             if (arSystem) arSystem.stop();
@@ -757,16 +808,12 @@
       uploadBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         
-        // Hide AR UI
         qrBtn.style.display = 'none';
         uploadBtn.style.display = 'none';
         scanInstruction.style.display = 'none';
         audioHint.style.display = 'none';
 
-        // Destroy the scene
         destroyARScene();
-
-        // Show setup screen
         setupScreen.style.display = 'flex';
       });
 
@@ -775,8 +822,10 @@
       // ============================
       backBtn.addEventListener('click', () => {
         setupScreen.style.display = 'none';
-        // Recreate the scene with whatever was last active
-        createARScene(activeMindUrl, activeVideoUrl);
+        
+        // If they hit back, we just reload the page to restart the AR cleanly
+        // (This preserves the ?id= parameter if they were already viewing a custom one)
+        window.location.reload();
       });
 
       // ============================
@@ -786,11 +835,11 @@
         e.stopPropagation();
         
         const qrContainer = document.getElementById('qrcode-container');
-        qrContainer.innerHTML = ''; // clear previous
+        qrContainer.innerHTML = '';
         
+        // Use the current URL (which will include ?id= if they uploaded something)
         const url = window.location.href;
         
-        // Generate QR code
         new QRCode(qrContainer, {
           text: url,
           width: 512,
@@ -800,13 +849,11 @@
           correctLevel: QRCode.CorrectLevel.H
         });
         
-        // Wait a tiny bit for QRCode to render to canvas
         setTimeout(() => {
           const canvas = qrContainer.querySelector('canvas');
           if (canvas) {
             const dataUrl = canvas.toDataURL('image/png');
             
-            // Create temporary link to download
             const link = document.createElement('a');
             link.download = 'LiveFrame-QR.png';
             link.href = dataUrl;
