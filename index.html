@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
-    <title>AR Polaroid</title>
+    <title>LiveFrame</title>
     <meta name="description" content="Point your camera at a photo to play a video overlay using augmented reality." />
     
     <!-- Google Fonts -->
@@ -16,6 +16,8 @@
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
     <!-- Load MindAR core (for the Compiler API) -->
     <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+    <!-- Load QRCode.js for generating QR codes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
     
     <style>
       * {
@@ -37,7 +39,7 @@
         position: fixed;
         inset: 0;
         z-index: 2000;
-        display: flex;
+        display: none; /* Hidden by default */
         flex-direction: column;
         align-items: center;
         justify-content: center;
@@ -55,6 +57,31 @@
         gap: 20px;
       }
 
+      .setup-header {
+        display: flex;
+        width: 100%;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+
+      .back-btn {
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        color: white;
+        padding: 8px 16px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-family: 'Inter', sans-serif;
+        font-size: 14px;
+        font-weight: 500;
+        transition: background 0.2s;
+      }
+
+      .back-btn:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
       .setup-title {
         font-size: 28px;
         font-weight: 700;
@@ -64,7 +91,6 @@
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
-        margin-bottom: 4px;
       }
 
       .setup-subtitle {
@@ -286,12 +312,11 @@
         display: none;
       }
 
-      /* ========== CHANGE BUTTON ========== */
-      #change-btn {
-        display: none;
+      /* ========== AR CORNER BUTTONS ========== */
+      .corner-btn {
+        display: none; /* Shown during AR */
         position: fixed;
         top: 16px;
-        right: 16px;
         z-index: 1500;
         width: 44px;
         height: 44px;
@@ -304,32 +329,38 @@
         cursor: pointer;
         transition: all 0.2s ease;
         padding: 0;
-        display: none;
         align-items: center;
         justify-content: center;
       }
 
-      #change-btn:hover {
+      .corner-btn:hover {
         background: rgba(99, 102, 241, 0.5);
         transform: scale(1.08);
       }
 
-      #change-btn:active {
+      .corner-btn:active {
         transform: scale(0.95);
       }
 
-      #change-btn svg {
+      .corner-btn svg {
         width: 20px;
         height: 20px;
       }
 
-      /* ========== SCENE CONTAINER ========== */
-      #scene-container {
+      #qr-btn {
+        left: 16px;
+      }
+
+      #upload-btn {
+        right: 16px;
+      }
+
+      /* Hidden file inputs and QR container */
+      .hidden-input {
         display: none;
       }
 
-      /* Hidden file inputs */
-      .hidden-input {
+      #qrcode-container {
         display: none;
       }
     </style>
@@ -339,7 +370,12 @@
     <!-- ========== SETUP SCREEN ========== -->
     <div id="setup-screen">
       <div class="setup-container">
-        <div class="setup-title">AR Polaroid</div>
+        <div class="setup-header">
+          <button id="back-btn" class="back-btn">Back</button>
+          <div class="setup-title">LiveFrame</div>
+          <div style="width: 50px;"></div> <!-- Spacer for centering -->
+        </div>
+        
         <div class="setup-subtitle">
           Upload a photo as your AR target and a video to play when the camera recognizes it
         </div>
@@ -389,12 +425,22 @@
     <div id="scan-instruction" class="overlay-msg">Point your camera at the photo</div>
     <div id="audio-hint" class="overlay-msg">Tap the video for sound</div>
 
-    <!-- ========== CHANGE BUTTON (shown during AR) ========== -->
-    <button id="change-btn" title="Change photo & video">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M21.015 4.356v4.992" />
+    <!-- ========== CORNER BUTTONS (shown during AR) ========== -->
+    <button id="qr-btn" class="corner-btn" title="Download QR Code">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 3.75 9.375v-4.5ZM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 0 1-1.125-1.125v-4.5ZM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0 1 13.5 9.375v-4.5Z" />
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 6.75h.75v.75h-.75v-.75ZM6.75 16.5h.75v.75h-.75v-.75ZM16.5 6.75h.75v.75h-.75v-.75ZM13.5 13.5h.75v.75h-.75v-.75ZM13.5 19.5h.75v.75h-.75v-.75ZM19.5 13.5h.75v.75h-.75v-.75ZM19.5 19.5h.75v.75h-.75v-.75ZM16.5 16.5h.75v.75h-.75v-.75Z" />
       </svg>
     </button>
+
+    <button id="upload-btn" class="corner-btn" title="Upload Custom Photo & Video">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+      </svg>
+    </button>
+
+    <!-- Hidden QR Code Container -->
+    <div id="qrcode-container"></div>
 
     <!-- ========== SCENE CONTAINER (populated dynamically) ========== -->
     <div id="scene-container"></div>
@@ -405,8 +451,19 @@
       // ============================
       let uploadedPhotoFile = null;
       let uploadedVideoFile = null;
+      
+      // Default to the predefined files on the server
+      const defaultMindUrl = './targets.mind';
+      const defaultVideoUrl = './video.mp4';
+      
+      // Track currently active urls
+      let activeMindUrl = defaultMindUrl;
+      let activeVideoUrl = defaultVideoUrl;
+      
+      // User created urls
       let compiledMindUrl = null;
       let videoObjectUrl = null;
+      
       let currentScene = null;
 
       // ============================
@@ -417,7 +474,11 @@
       const compileText = document.getElementById('compile-text');
       const compileProgressBar = document.getElementById('compile-progress-bar');
       const startBtn = document.getElementById('start-btn');
-      const changeBtn = document.getElementById('change-btn');
+      const backBtn = document.getElementById('back-btn');
+      
+      const qrBtn = document.getElementById('qr-btn');
+      const uploadBtn = document.getElementById('upload-btn');
+      
       const sceneContainer = document.getElementById('scene-container');
       const scanInstruction = document.getElementById('scan-instruction');
       const audioHint = document.getElementById('audio-hint');
@@ -432,6 +493,14 @@
       const videoPreview = document.getElementById('video-preview');
       const photoFilename = document.getElementById('photo-filename');
       const videoFilename = document.getElementById('video-filename');
+
+      // ============================
+      // Initialize on Load
+      // ============================
+      document.addEventListener("DOMContentLoaded", () => {
+        // Start AR immediately with default files
+        createARScene(activeMindUrl, activeVideoUrl);
+      });
 
       // ============================
       // File Upload Handlers
@@ -477,7 +546,7 @@
       }
 
       // ============================
-      // Start AR Flow
+      // Start AR Flow (from custom upload)
       // ============================
       startBtn.addEventListener('click', async () => {
         if (!uploadedPhotoFile || !uploadedVideoFile) return;
@@ -515,6 +584,9 @@
           const mindBlob = new Blob([exportedBuffer]);
           compiledMindUrl = URL.createObjectURL(mindBlob);
           videoObjectUrl = URL.createObjectURL(uploadedVideoFile);
+          
+          activeMindUrl = compiledMindUrl;
+          activeVideoUrl = videoObjectUrl;
 
           compileProgressBar.style.width = '100%';
           compileText.textContent = 'Launching AR...';
@@ -523,7 +595,7 @@
           await delay(400);
 
           // Step 5: Create and start the AR scene
-          createARScene(compiledMindUrl, videoObjectUrl);
+          createARScene(activeMindUrl, activeVideoUrl);
 
         } catch (err) {
           console.error('Compilation failed:', err);
@@ -598,9 +670,10 @@
         sceneContainer.style.display = 'block';
         compileOverlay.style.display = 'none';
 
-        // Show AR overlays
+        // Show AR overlays and corner buttons
         scanInstruction.style.display = 'block';
-        changeBtn.style.display = 'flex';
+        qrBtn.style.display = 'flex';
+        uploadBtn.style.display = 'flex';
 
         // Wait for scene to initialize, then attach events
         const scene = sceneContainer.querySelector('a-scene');
@@ -667,13 +740,14 @@
       }
 
       // ============================
-      // Change Button Handler
+      // Upload Button (Open Setup)
       // ============================
-      changeBtn.addEventListener('click', (e) => {
+      uploadBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         
         // Hide AR UI
-        changeBtn.style.display = 'none';
+        qrBtn.style.display = 'none';
+        uploadBtn.style.display = 'none';
         scanInstruction.style.display = 'none';
         audioHint.style.display = 'none';
 
@@ -682,6 +756,56 @@
 
         // Show setup screen
         setupScreen.style.display = 'flex';
+      });
+
+      // ============================
+      // Back Button (Close Setup)
+      // ============================
+      backBtn.addEventListener('click', () => {
+        setupScreen.style.display = 'none';
+        // Recreate the scene with whatever was last active
+        createARScene(activeMindUrl, activeVideoUrl);
+      });
+
+      // ============================
+      // QR Code Generator
+      // ============================
+      qrBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        const qrContainer = document.getElementById('qrcode-container');
+        qrContainer.innerHTML = ''; // clear previous
+        
+        const url = window.location.href;
+        
+        // Generate QR code
+        new QRCode(qrContainer, {
+          text: url,
+          width: 512,
+          height: 512,
+          colorDark: "#000000",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.H
+        });
+        
+        // Wait a tiny bit for QRCode to render to canvas
+        setTimeout(() => {
+          const canvas = qrContainer.querySelector('canvas');
+          if (canvas) {
+            const dataUrl = canvas.toDataURL('image/png');
+            
+            // Create temporary link to download
+            const link = document.createElement('a');
+            link.download = 'LiveFrame-QR.png';
+            link.href = dataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+          } else {
+            console.error("QR Code canvas not generated.");
+            alert("Failed to generate QR code.");
+          }
+        }, 100);
       });
     </script>
   </body>
