@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>AR Polaroid</title>
+    <meta name="description" content="Point your camera at a photo to play a video overlay using augmented reality." />
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Load A-Frame first -->
+    <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+    <!-- Load MindAR A-Frame integration (for runtime tracking) -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+    <!-- Load MindAR core (for the Compiler API) -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image.prod.js"></script>
+    
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        overflow: hidden;
+        font-family: 'Inter', sans-serif;
+        background: #0a0a0f;
+        color: #fff;
+      }
+
+      /* ========== SETUP SCREEN ========== */
+      #setup-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 2000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: linear-gradient(145deg, #0a0a1a 0%, #0d1025 40%, #151030 70%, #0a0a1a 100%);
+        padding: 24px;
+        overflow-y: auto;
+      }
+
+      .setup-container {
+        width: 100%;
+        max-width: 400px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 20px;
+      }
+
+      .setup-title {
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: -0.5px;
+        text-align: center;
+        background: linear-gradient(135deg, #a78bfa, #818cf8, #6366f1);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: 4px;
+      }
+
+      .setup-subtitle {
+        font-size: 14px;
+        color: rgba(255, 255, 255, 0.5);
+        text-align: center;
+        line-height: 1.5;
+        margin-bottom: 8px;
+      }
+
+      /* Upload cards */
+      .upload-card {
+        width: 100%;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1.5px dashed rgba(255, 255, 255, 0.12);
+        padding: 24px 20px;
+        text-align: center;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .upload-card::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.06), rgba(167, 139, 250, 0.03));
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .upload-card:hover {
+        border-color: rgba(129, 140, 248, 0.4);
+        transform: translateY(-2px);
+        box-shadow: 0 8px 32px rgba(99, 102, 241, 0.12);
+      }
+
+      .upload-card:hover::before {
+        opacity: 1;
+      }
+
+      .upload-card.has-file {
+        border-style: solid;
+        border-color: rgba(99, 102, 241, 0.5);
+        background: rgba(99, 102, 241, 0.08);
+      }
+
+      .upload-icon {
+        width: 48px;
+        height: 48px;
+        margin: 0 auto 12px;
+        border-radius: 12px;
+        background: rgba(99, 102, 241, 0.15);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        z-index: 1;
+      }
+
+      .upload-icon svg {
+        width: 24px;
+        height: 24px;
+        color: #818cf8;
+      }
+
+      .upload-label {
+        font-size: 15px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+        margin-bottom: 4px;
+        position: relative;
+        z-index: 1;
+      }
+
+      .upload-hint {
+        font-size: 12px;
+        color: rgba(255, 255, 255, 0.35);
+        position: relative;
+        z-index: 1;
+      }
+
+      .upload-preview {
+        display: none;
+        position: relative;
+        z-index: 1;
+        margin-top: 12px;
+      }
+
+      .upload-preview img,
+      .upload-preview video {
+        max-width: 100%;
+        max-height: 120px;
+        border-radius: 8px;
+        object-fit: cover;
+      }
+
+      .upload-filename {
+        display: none;
+        font-size: 12px;
+        color: rgba(129, 140, 248, 0.9);
+        margin-top: 8px;
+        position: relative;
+        z-index: 1;
+        word-break: break-all;
+      }
+
+      /* Start Button */
+      #start-btn {
+        width: 100%;
+        padding: 16px 24px;
+        border: none;
+        border-radius: 12px;
+        font-family: 'Inter', sans-serif;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        background: linear-gradient(135deg, #6366f1, #818cf8);
+        color: white;
+        box-shadow: 0 4px 20px rgba(99, 102, 241, 0.35);
+        margin-top: 8px;
+      }
+
+      #start-btn:disabled {
+        opacity: 0.35;
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+      }
+
+      #start-btn:not(:disabled):hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px rgba(99, 102, 241, 0.5);
+      }
+
+      #start-btn:not(:disabled):active {
+        transform: translateY(0);
+      }
+
+      /* Progress overlay */
+      #compile-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 3000;
+        background: rgba(10, 10, 26, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 24px;
+      }
+
+      .compile-spinner {
+        width: 56px;
+        height: 56px;
+        border: 3px solid rgba(129, 140, 248, 0.15);
+        border-top-color: #818cf8;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      .compile-text {
+        font-size: 16px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.8);
+      }
+
+      .compile-progress {
+        width: 240px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 2px;
+        overflow: hidden;
+      }
+
+      .compile-progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #6366f1, #a78bfa);
+        border-radius: 2px;
+        transition: width 0.3s ease;
+      }
+
+      /* ========== AR OVERLAY MESSAGES ========== */
+      .overlay-msg {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 12px 24px;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        color: white;
+        font-family: 'Inter', sans-serif;
+        font-size: 15px;
+        border-radius: 12px;
+        z-index: 1000;
+        pointer-events: none;
+        text-align: center;
+        transition: opacity 0.3s;
+      }
+
+      #scan-instruction {
+        top: 40%;
+        display: none;
+      }
+
+      #audio-hint {
+        bottom: 10%;
+        display: none;
+      }
+
+      /* ========== CHANGE BUTTON ========== */
+      #change-btn {
+        display: none;
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 1500;
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        border: none;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        color: white;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        padding: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+      }
+
+      #change-btn:hover {
+        background: rgba(99, 102, 241, 0.5);
+        transform: scale(1.08);
+      }
+
+      #change-btn:active {
+        transform: scale(0.95);
+      }
+
+      #change-btn svg {
+        width: 20px;
+        height: 20px;
+      }
+
+      /* ========== SCENE CONTAINER ========== */
+      #scene-container {
+        display: none;
+      }
+
+      /* Hidden file inputs */
+      .hidden-input {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- ========== SETUP SCREEN ========== -->
+    <div id="setup-screen">
+      <div class="setup-container">
+        <div class="setup-title">AR Polaroid</div>
+        <div class="setup-subtitle">
+          Upload a photo as your AR target and a video to play when the camera recognizes it
+        </div>
+
+        <!-- Photo Upload Card -->
+        <div class="upload-card" id="photo-card" onclick="document.getElementById('photo-input').click()">
+          <div class="upload-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+            </svg>
+          </div>
+          <div class="upload-label" id="photo-label">Upload Target Photo</div>
+          <div class="upload-hint">JPG, PNG — the image the camera will recognize</div>
+          <div class="upload-preview" id="photo-preview"></div>
+          <div class="upload-filename" id="photo-filename"></div>
+        </div>
+        <input type="file" id="photo-input" class="hidden-input" accept="image/jpeg,image/png,image/webp" />
+
+        <!-- Video Upload Card -->
+        <div class="upload-card" id="video-card" onclick="document.getElementById('video-input').click()">
+          <div class="upload-icon">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+            </svg>
+          </div>
+          <div class="upload-label" id="video-label">Upload Video</div>
+          <div class="upload-hint">MP4, WebM — the video to play over the photo</div>
+          <div class="upload-preview" id="video-preview"></div>
+          <div class="upload-filename" id="video-filename"></div>
+        </div>
+        <input type="file" id="video-input" class="hidden-input" accept="video/mp4,video/webm,video/quicktime" />
+
+        <button id="start-btn" disabled>Start AR Experience</button>
+      </div>
+    </div>
+
+    <!-- ========== COMPILATION PROGRESS ========== -->
+    <div id="compile-overlay">
+      <div class="compile-spinner"></div>
+      <div class="compile-text" id="compile-text">Preparing your AR experience...</div>
+      <div class="compile-progress">
+        <div class="compile-progress-bar" id="compile-progress-bar"></div>
+      </div>
+    </div>
+
+    <!-- ========== AR OVERLAY MESSAGES ========== -->
+    <div id="scan-instruction" class="overlay-msg">Point your camera at the photo</div>
+    <div id="audio-hint" class="overlay-msg">Tap the video for sound</div>
+
+    <!-- ========== CHANGE BUTTON (shown during AR) ========== -->
+    <button id="change-btn" title="Change photo & video">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182M21.015 4.356v4.992" />
+      </svg>
+    </button>
+
+    <!-- ========== SCENE CONTAINER (populated dynamically) ========== -->
+    <div id="scene-container"></div>
+
+    <script>
+      // ============================
+      // State
+      // ============================
+      let uploadedPhotoFile = null;
+      let uploadedVideoFile = null;
+      let compiledMindUrl = null;
+      let videoObjectUrl = null;
+      let currentScene = null;
+
+      // ============================
+      // DOM refs
+      // ============================
+      const setupScreen = document.getElementById('setup-screen');
+      const compileOverlay = document.getElementById('compile-overlay');
+      const compileText = document.getElementById('compile-text');
+      const compileProgressBar = document.getElementById('compile-progress-bar');
+      const startBtn = document.getElementById('start-btn');
+      const changeBtn = document.getElementById('change-btn');
+      const sceneContainer = document.getElementById('scene-container');
+      const scanInstruction = document.getElementById('scan-instruction');
+      const audioHint = document.getElementById('audio-hint');
+
+      const photoInput = document.getElementById('photo-input');
+      const videoInput = document.getElementById('video-input');
+      const photoCard = document.getElementById('photo-card');
+      const videoCard = document.getElementById('video-card');
+      const photoLabel = document.getElementById('photo-label');
+      const videoLabel = document.getElementById('video-label');
+      const photoPreview = document.getElementById('photo-preview');
+      const videoPreview = document.getElementById('video-preview');
+      const photoFilename = document.getElementById('photo-filename');
+      const videoFilename = document.getElementById('video-filename');
+
+      // ============================
+      // File Upload Handlers
+      // ============================
+      photoInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        uploadedPhotoFile = file;
+        
+        photoCard.classList.add('has-file');
+        photoLabel.textContent = 'Photo Selected';
+        photoFilename.textContent = file.name;
+        photoFilename.style.display = 'block';
+
+        // Show preview
+        const url = URL.createObjectURL(file);
+        photoPreview.innerHTML = `<img src="${url}" alt="Target photo preview" />`;
+        photoPreview.style.display = 'block';
+
+        updateStartBtn();
+      });
+
+      videoInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        uploadedVideoFile = file;
+
+        videoCard.classList.add('has-file');
+        videoLabel.textContent = 'Video Selected';
+        videoFilename.textContent = file.name;
+        videoFilename.style.display = 'block';
+
+        // Show preview
+        const url = URL.createObjectURL(file);
+        videoPreview.innerHTML = `<video src="${url}" muted playsinline style="pointer-events:none;" autoplay loop></video>`;
+        videoPreview.style.display = 'block';
+
+        updateStartBtn();
+      });
+
+      function updateStartBtn() {
+        startBtn.disabled = !(uploadedPhotoFile && uploadedVideoFile);
+      }
+
+      // ============================
+      // Start AR Flow
+      // ============================
+      startBtn.addEventListener('click', async () => {
+        if (!uploadedPhotoFile || !uploadedVideoFile) return;
+
+        // Show compilation overlay
+        setupScreen.style.display = 'none';
+        compileOverlay.style.display = 'flex';
+        compileText.textContent = 'Analyzing your photo...';
+        compileProgressBar.style.width = '0%';
+
+        try {
+          // Step 1: Load the image
+          const img = await loadImage(uploadedPhotoFile);
+          compileProgressBar.style.width = '10%';
+          compileText.textContent = 'Compiling image target...';
+
+          // Step 2: Compile the image target
+          const compiler = new MINDAR.IMAGE.Compiler();
+          await compiler.compileImageTargets([img], (progress) => {
+            // progress goes from 0 to 1
+            const pct = 10 + Math.round(progress * 80);
+            compileProgressBar.style.width = pct + '%';
+          });
+
+          compileText.textContent = 'Exporting target data...';
+          compileProgressBar.style.width = '92%';
+
+          // Step 3: Export the compiled data
+          const exportedBuffer = await compiler.exportData();
+
+          // Step 4: Create Blob URLs
+          if (compiledMindUrl) URL.revokeObjectURL(compiledMindUrl);
+          if (videoObjectUrl) URL.revokeObjectURL(videoObjectUrl);
+
+          const mindBlob = new Blob([exportedBuffer]);
+          compiledMindUrl = URL.createObjectURL(mindBlob);
+          videoObjectUrl = URL.createObjectURL(uploadedVideoFile);
+
+          compileProgressBar.style.width = '100%';
+          compileText.textContent = 'Launching AR...';
+
+          // Short delay for visual feedback
+          await delay(400);
+
+          // Step 5: Create and start the AR scene
+          createARScene(compiledMindUrl, videoObjectUrl);
+
+        } catch (err) {
+          console.error('Compilation failed:', err);
+          compileText.textContent = 'Something went wrong. Please try again.';
+          compileProgressBar.style.width = '0%';
+          await delay(2000);
+          compileOverlay.style.display = 'none';
+          setupScreen.style.display = 'flex';
+        }
+      });
+
+      // ============================
+      // Image Loader
+      // ============================
+      function loadImage(file) {
+        return new Promise((resolve, reject) => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = URL.createObjectURL(file);
+        });
+      }
+
+      function delay(ms) {
+        return new Promise(r => setTimeout(r, ms));
+      }
+
+      // ============================
+      // Create AR Scene
+      // ============================
+      function createARScene(mindUrl, vidUrl) {
+        // Remove any existing scene
+        destroyARScene();
+
+        // Build scene HTML
+        sceneContainer.innerHTML = `
+          <a-scene
+            mindar-image="imageTargetSrc: ${mindUrl}; uiLoading: no; uiScanning: no;"
+            color-space="sRGB"
+            renderer="colorManagement: true, physicallyCorrectLights"
+            vr-mode-ui="enabled: false"
+            device-orientation-permission-ui="enabled: false"
+          >
+            <a-assets>
+              <video
+                id="ar-video"
+                src="${vidUrl}"
+                preload="auto"
+                playsinline
+                webkit-playsinline
+                muted
+                loop
+                crossorigin="anonymous"
+              ></video>
+            </a-assets>
+
+            <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+            <a-entity id="target-entity" mindar-image-target="targetIndex: 0">
+              <a-plane
+                id="video-plane"
+                src="#ar-video"
+                position="0 0 0"
+                height="1"
+                width="1"
+                rotation="0 0 0"
+              ></a-plane>
+            </a-entity>
+          </a-scene>
+        `;
+
+        sceneContainer.style.display = 'block';
+        compileOverlay.style.display = 'none';
+
+        // Show AR overlays
+        scanInstruction.style.display = 'block';
+        changeBtn.style.display = 'flex';
+
+        // Wait for scene to initialize, then attach events
+        const scene = sceneContainer.querySelector('a-scene');
+        currentScene = scene;
+
+        scene.addEventListener('loaded', () => {
+          const targetEntity = scene.querySelector('#target-entity');
+          const video = scene.querySelector('#ar-video');
+          let hasDetectedOnce = false;
+          let hasTappedOnce = false;
+
+          targetEntity.addEventListener('targetFound', () => {
+            console.log('Target found!');
+            if (scanInstruction) scanInstruction.style.display = 'none';
+
+            if (!hasDetectedOnce && !hasTappedOnce) {
+              hasDetectedOnce = true;
+              if (audioHint) audioHint.style.display = 'block';
+            }
+
+            video.play().catch(err => {
+              console.error('Video playback failed:', err);
+            });
+          });
+
+          targetEntity.addEventListener('targetLost', () => {
+            console.log('Target lost!');
+            if (scanInstruction) scanInstruction.style.display = 'block';
+            video.pause();
+          });
+
+          // Handle first tap to unmute
+          const handleFirstTap = () => {
+            if (!hasTappedOnce) {
+              hasTappedOnce = true;
+              if (audioHint) audioHint.style.display = 'none';
+              if (video.muted) {
+                video.muted = false;
+              }
+            }
+          };
+
+          window.addEventListener('click', handleFirstTap, { once: true });
+          window.addEventListener('touchstart', handleFirstTap, { once: true });
+        });
+      }
+
+      // ============================
+      // Destroy AR Scene
+      // ============================
+      function destroyARScene() {
+        if (currentScene) {
+          // Try to stop the AR system gracefully
+          try {
+            const arSystem = currentScene.systems['mindar-image-system'];
+            if (arSystem) arSystem.stop();
+          } catch (e) {
+            console.warn('Could not stop AR system:', e);
+          }
+          currentScene = null;
+        }
+        sceneContainer.innerHTML = '';
+        sceneContainer.style.display = 'none';
+      }
+
+      // ============================
+      // Change Button Handler
+      // ============================
+      changeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        
+        // Hide AR UI
+        changeBtn.style.display = 'none';
+        scanInstruction.style.display = 'none';
+        audioHint.style.display = 'none';
+
+        // Destroy the scene
+        destroyARScene();
+
+        // Show setup screen
+        setupScreen.style.display = 'flex';
+      });
+    </script>
+  </body>
+</html>
